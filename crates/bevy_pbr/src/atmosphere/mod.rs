@@ -240,7 +240,13 @@ pub fn extract_atmosphere(
             outer_radius: atmo.outer_radius,
             ground_albedo: atmo.ground_albedo,
             medium: atmo.medium.id(),
-            world_to_atmosphere: gt.to_matrix().inverse(),
+            // Use only the entity's translation and scale, not its rotation, so
+            // the atmosphere's frame stays world-aligned. The sky basis and the
+            // `render_sky` raymarch treat the camera's atmosphere-space position
+            // and up as world-space, so a rotated `Atmosphere` would otherwise
+            // tilt the sky. An identity rotation is unchanged.
+            world_to_atmosphere: Mat4::from_scale(gt.scale().recip())
+                * Mat4::from_translation(-gt.translation()),
         };
         commands.entity(render_entity).insert(extracted);
         commands

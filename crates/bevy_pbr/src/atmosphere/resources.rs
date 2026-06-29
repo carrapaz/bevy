@@ -565,7 +565,14 @@ pub(super) fn prepare_atmosphere_transforms(
         let atmo_y = cam_pos.try_normalize().unwrap_or(Vec3A::Y);
 
         // World-horizontal reference for back, projected orthogonal to atmo_y.
-        let world_ref = Vec3A::NEG_Z;
+        // `NEG_Z` is degenerate when atmo_y is (anti)parallel to it (a Z-up
+        // world): `ref_horizontal` collapses to zero and `atmo_z` becomes NaN, so
+        // fall back to `NEG_Y` there.
+        let world_ref = if atmo_y.dot(Vec3A::NEG_Z).abs() < 0.999 {
+            Vec3A::NEG_Z
+        } else {
+            Vec3A::NEG_Y
+        };
         let ref_horizontal = world_ref - atmo_y * atmo_y.dot(world_ref);
         let atmo_z = ref_horizontal.normalize();
         let atmo_x = atmo_y.cross(atmo_z).normalize();
