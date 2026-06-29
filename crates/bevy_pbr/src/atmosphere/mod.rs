@@ -245,7 +245,23 @@ pub fn extract_atmosphere(
             outer_radius: atmo.outer_radius,
             ground_albedo: atmo.ground_albedo,
             medium: atmo.medium.id(),
-            world_to_atmosphere: gt.to_matrix().inverse(),
+            // The atmosphere is spherically symmetric, so the entity's
+            // ORIENTATION carries no rendering meaning — but the rest of the
+            // pipeline assumes the atmosphere's local frame is world-ALIGNED:
+            // `prepare_atmosphere_transforms` consumes the camera's
+            // atmosphere-local position as a *world*-space up vector, and the
+            // raymarch's `up = normalize(world_pos)` (functions.wgsl) is dotted
+            // against world-space ray/light directions. Baking the entity's
+            // rotation into `world_to_atmosphere` renders the sky (and the
+            // inscattering / sun geometry) in that rotated frame, tilting it
+            // relative to the camera/view + the directional light whenever the
+            // `Atmosphere` is parented into a rotated space (e.g. an ECEF /
+            // non-Y-up world). So drop ONLY the rotation; keep translation AND
+            // scale (the documented "scale rescales the planet" contract). For
+            // any identity-rotation atmosphere this is exactly the original
+            // `gt.to_matrix().inverse()`.
+            world_to_atmosphere: Mat4::from_scale(gt.scale().recip())
+                * Mat4::from_translation(-gt.translation()),
         };
         commands.entity(render_entity).insert(extracted);
         commands
