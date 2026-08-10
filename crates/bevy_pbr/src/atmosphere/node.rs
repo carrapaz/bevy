@@ -1,6 +1,7 @@
 use bevy_camera::{MainPassResolutionOverride, Viewport};
 use bevy_ecs::system::Res;
 use bevy_math::{UVec2, Vec3Swizzles};
+use bevy_render::diagnostic::RecordDiagnostics;
 use bevy_render::{
     camera::ExtractedCamera,
     extract_component::DynamicUniformIndex,
@@ -58,12 +59,21 @@ pub fn atmosphere_luts(
         return;
     };
 
+    // The atmosphere LUT passes recorded no diagnostic span at all, so their
+    // GPU cost was invisible to `RenderDiagnosticsPlugin` and landed in the
+    // frame's unattributed residual. They are raymarched compute over
+    // fixed-size textures, i.e. resolution-independent, which makes them
+    // indistinguishable from "missing instrumentation" in a frame breakdown.
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+
     let command_encoder = ctx.command_encoder();
 
     let mut luts_pass = command_encoder.begin_compute_pass(&ComputePassDescriptor {
         label: Some("atmosphere_luts"),
         timestamp_writes: None,
     });
+    let luts_span = diagnostics.time_span(&mut luts_pass, "atmosphere_luts");
 
     fn dispatch_2d(compute_pass: &mut ComputePass, size: UVec2) {
         const WORKGROUP_SIZE: u32 = 16;
@@ -136,6 +146,8 @@ pub fn atmosphere_luts(
     );
 
     dispatch_2d(&mut luts_pass, settings.aerial_view_lut_size.xy());
+
+    luts_span.end(&mut luts_pass);
 }
 
 pub fn render_sky(
@@ -172,6 +184,9 @@ pub fn render_sky(
         return;
     }; //TODO: warning
 
+    let sky_diagnostics = ctx.diagnostic_recorder();
+    let sky_diagnostics = sky_diagnostics.as_deref();
+
     let command_encoder = ctx.command_encoder();
 
     let mut render_sky_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
@@ -196,6 +211,8 @@ pub fn render_sky(
         );
     }
 
+    let sky_span = sky_diagnostics.time_span(&mut render_sky_pass, "render_sky");
+
     render_sky_pass.set_pipeline(render_sky_pipeline);
     render_sky_pass.set_bind_group(
         0,
@@ -209,4 +226,6 @@ pub fn render_sky(
         ],
     );
     render_sky_pass.draw(0..3, 0..1);
+
+    sky_span.end(&mut render_sky_pass);
 }

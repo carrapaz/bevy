@@ -50,6 +50,7 @@ use bevy_render::view::{
     RenderExtractedShadowMapVisibleEntities, RenderShadowLodOrigin, RenderShadowMapVisibleEntities,
     RenderVisibleEntities, VisibilityExtractionSystemParam,
 };
+use bevy_render::diagnostic::RecordDiagnostics;
 use bevy_render::{
     batching::gpu_preprocessing::{GpuPreprocessingMode, GpuPreprocessingSupport},
     camera::SortedCameras,
@@ -2831,6 +2832,13 @@ fn view_shadow_pass<const IS_LATE: bool>(
 
     let depth_stencil_attachment = Some(view_light.depth_attachment.get_attachment(StoreOp::Store));
 
+    // The shadow pass previously recorded only a tracing `info_span!`, never a
+    // `pass_span`, so `RenderDiagnosticsPlugin` could not see it and its GPU
+    // cost landed in the frame's unattributed residual. Every other 3d pass
+    // records one; this is the gap.
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+
     let mut render_pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some(&view_light.pass_name),
         color_attachments: &[],
@@ -2839,10 +2847,17 @@ fn view_shadow_pass<const IS_LATE: bool>(
         occlusion_query_set: None,
         multiview_mask: None,
     });
+    // Per-CASCADE name, matching the tracing span above. A single shared
+    // "shadow_pass" label collapses every cascade / light view onto one
+    // diagnostic path, where they overwrite each other and the row reports
+    // ~0.01 ms for what differencing measures as ~10 ms of real work.
+    let pass_span = diagnostics.pass_span(&mut render_pass, view_light.pass_name.clone());
 
     if let Err(err) = shadow_phase.render(&mut render_pass, world, view_light_entity) {
         error!("Error encountered while rendering the shadow phase {err:?}");
     }
+
+    pass_span.end(&mut render_pass);
 }
 
 /// Creates the [`ClusterableObjectType`] data for a point or spot light.
