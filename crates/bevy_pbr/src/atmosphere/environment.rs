@@ -17,6 +17,7 @@ use bevy_ecs::{
 use bevy_image::Image;
 use bevy_light::{AtmosphereEnvironmentMapLight, GeneratedEnvironmentMapLight};
 use bevy_math::{Quat, UVec2};
+use bevy_render::diagnostic::RecordDiagnostics;
 use bevy_render::{
     extract_component::{ComponentUniforms, DynamicUniformIndex, ExtractComponent},
     render_asset::RenderAssets,
@@ -268,12 +269,18 @@ pub fn atmosphere_environment(
         lights_uniforms_offset,
     ) = view.into_inner();
 
+    // Regenerates + prefilters a sky environment cubemap; previously recorded
+    // no span, so it was invisible in the frame breakdown.
+    let env_diagnostics = ctx.diagnostic_recorder();
+    let env_diagnostics = env_diagnostics.as_deref();
+
     for (bind_groups, env_map_light) in probe_query.iter() {
         let command_encoder = ctx.command_encoder();
         let mut pass = command_encoder.begin_compute_pass(&ComputePassDescriptor {
             label: Some("environment_pass"),
             timestamp_writes: None,
         });
+        let env_span = env_diagnostics.time_span(&mut pass, "atmosphere_environment");
 
         pass.set_pipeline(environment_pipeline);
         pass.set_bind_group(
@@ -293,5 +300,7 @@ pub fn atmosphere_environment(
             env_map_light.size.y / 8,
             6, // 6 cubemap faces
         );
+
+        env_span.end(&mut pass);
     }
 }

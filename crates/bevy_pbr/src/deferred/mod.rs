@@ -14,6 +14,7 @@ use bevy_core_pipeline::{
     schedule::{Core3d, Core3dSystems},
 };
 use bevy_ecs::prelude::*;
+use bevy_render::diagnostic::RecordDiagnostics;
 use bevy_render::{
     camera::ExtractedCamera,
     extract_component::{
@@ -153,6 +154,12 @@ pub fn deferred_lighting(
         &BindGroupEntries::single(deferred_lighting_pass_id_binding),
     );
 
+    // Uninstrumented before this: the deferred G-buffer prepass recorded a
+    // span but the full-screen lighting evaluation that consumes it did not,
+    // so its cost sat in the frame's unattributed residual.
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+
     let mut render_pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("deferred_lighting"),
         color_attachments: &[Some(target.get_color_attachment())],
@@ -169,6 +176,8 @@ pub fn deferred_lighting(
         multiview_mask: None,
     });
 
+    let pass_span = diagnostics.pass_span(&mut render_pass, "deferred_lighting");
+
     render_pass.set_render_pipeline(pipeline);
 
     render_pass.set_bind_group(
@@ -179,6 +188,8 @@ pub fn deferred_lighting(
     render_pass.set_bind_group(1, &mesh_view_bind_group.binding_array, &[]);
     render_pass.set_bind_group(2, &bind_group_2, &[]);
     render_pass.draw(0..3, 0..1);
+
+    pass_span.end(&mut render_pass);
 }
 
 #[derive(Resource)]
